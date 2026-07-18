@@ -57,12 +57,12 @@ const item = (
 });
 
 const starterProductNames = [
-  "Tomatine-Bread",
-  "DSS-Bread",
-  "Pfferbrezel-Bread",
-  "Vinschgauer-Bread",
+  "Tomatine",
+  "DSS",
+  "Pfferbrezel",
+  "Vinschgauer",
   "Bauernweckla",
-  "Vollkornbrötchen-Bread",
+  "Vollkornbrötchen",
 ];
 
 const starterProducts: CatalogProduct[] = starterProductNames.map((name) => ({
@@ -76,16 +76,16 @@ function starterOrders(): FamilyOrder[] {
       name: "Germain",
       items: [
         item(
-          "Tomatine-Bread",
+          "Tomatine",
           item(
-            "DSS-Bread",
-            item("Pfferbrezel-Bread", null, "starter-germain-pffer"),
+            "DSS",
+            item("Pfferbrezel", null, "starter-germain-pffer"),
             "starter-germain-dss",
           ),
           "starter-germain-tomatine",
         ),
         item(
-          "Vinschgauer-Bread",
+          "Vinschgauer",
           item("Bauernweckla", null, "starter-germain-bauern"),
           "starter-germain-vinschgauer",
         ),
@@ -96,11 +96,11 @@ function starterOrders(): FamilyOrder[] {
       name: "Johanna",
       items: [
         item(
-          "Pfferbrezel-Bread",
-          item("Vollkornbrötchen-Bread", null, "starter-johanna-vollkorn"),
+          "Pfferbrezel",
+          item("Vollkornbrötchen", null, "starter-johanna-vollkorn"),
           "starter-johanna-pffer",
         ),
-        item("Tomatine-Bread", null, "starter-johanna-tomatine"),
+        item("Tomatine", null, "starter-johanna-tomatine"),
       ],
     },
     {
@@ -109,27 +109,27 @@ function starterOrders(): FamilyOrder[] {
       items: [],
     },
     {
-      id: "starter-person-klaus",
+      id: "starter-person-sabine",
       name: "Sabine",
       items: [],
     },
     {
-      id: "starter-person-klaus",
+      id: "starter-person-thomas",
       name: "Thomas",
       items: [],
     },
     {
-      id: "starter-person-klaus",
+      id: "starter-person-katharina",
       name: "Katharina",
       items: [],
     },
     {
-      id: "starter-person-klaus",
+      id: "starter-person-klaus-dieter",
       name: "Klaus Dieter",
       items: [],
     },
     {
-      id: "starter-person-klaus",
+      id: "starter-person-marga",
       name: "Marga",
       items: [],
     },
