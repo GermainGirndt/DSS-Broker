@@ -15,5 +15,5 @@ export interface Product {
 export interface OrderItem {
   product: Product;
   alternativeOrderItem: OrderItem | null;
-  status: "Concluded" | "Non Available";
+  status: "Not Processed" | "Concluded" | "Non Available";
 }
