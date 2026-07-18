@@ -51,6 +51,16 @@ function activeItem(node: ItemNode): ItemNode | null {
   return node.alternativeOrderItem ? activeItem(node.alternativeOrderItem) : null;
 }
 
+function itemSequence(node: ItemNode) {
+  const sequence: ItemNode[] = [];
+  let current: ItemNode | null = node;
+  while (current) {
+    sequence.push(current);
+    current = current.alternativeOrderItem;
+  }
+  return sequence;
+}
+
 function tallyItems(items: ItemNode[]) {
   const tally = new Map<string, number>();
   items.forEach((root) => {
@@ -104,6 +114,15 @@ export default function Home() {
     if (!name || products.some((entry) => entry.toLowerCase() === name.toLowerCase())) return;
     setProducts((current) => [...current, name]);
     setNewProduct("");
+  };
+
+  const deleteProduct = (productName: string) => {
+    setProducts((current) => current.filter((name) => name !== productName));
+    setUnavailableProducts((current) => {
+      const next = new Set(current);
+      next.delete(productName);
+      return next;
+    });
   };
 
   const addPerson = () => {
@@ -190,7 +209,7 @@ export default function Home() {
         </div>
         <div className="product-bar">
           <div className="chips">
-            {products.map((name) => <span className="chip" key={name}><span className="grain">✦</span>{name}</span>)}
+            {products.map((name) => <span className="chip" key={name}><span className="grain">✦</span><span>{name}</span><button onClick={() => deleteProduct(name)} aria-label={`Delete ${name} from available breads`} title="Delete available bread"><Icon name="x" /></button></span>)}
           </div>
           <form className="inline-form" onSubmit={(event) => { event.preventDefault(); addProduct(); }}>
             <label htmlFor="product">Add a bread</label>
@@ -241,10 +260,13 @@ export default function Home() {
 }
 
 function OrderRow({ node, index, onDelete }: { node: ItemNode; index: number; onDelete?: () => void }) {
+  const sequence = itemSequence(node);
+  const effectiveItem = activeItem(node);
+
   return (
     <div className={`order-item ${node.status === "Non Available" ? "unavailable" : ""}`}>
-      <div className="item-main"><span className="item-index">{String(index).padStart(2, "0")}</span><div className="item-name"><strong>{node.product.name}</strong>{node.alternativeOrderItem && <small><Icon name="arrow" /> Alt: {node.alternativeOrderItem.product.name}</small>}</div>{onDelete && <button className="delete-item" onClick={onDelete} aria-label={`Delete ${node.product.name}`} title="Delete order item"><Icon name="trash" /></button>}</div>
-      {node.status === "Non Available" && node.alternativeOrderItem && <div className="fallback"><span>Using alternative</span><OrderRow node={node.alternativeOrderItem} index={index} /></div>}
+      <div className="item-main"><span className="item-index">{String(index).padStart(2, "0")}</span><div className="item-name"><strong>{node.product.name}</strong>{sequence.length > 1 && <small>{sequence.length - 1} alternative{sequence.length > 2 ? "s" : ""}</small>}</div>{onDelete && <button className="delete-item" onClick={onDelete} aria-label={`Delete ${node.product.name}`} title="Delete order item"><Icon name="trash" /></button>}</div>
+      {sequence.length > 1 && <div className="fallback-route"><span>Fallback sequence</span><div className="fallback-steps">{sequence.map((choice, choiceIndex) => <div className="fallback-step-wrap" key={choice.id}>{choiceIndex > 0 && <Icon name="arrow" />}<span className={`fallback-step ${choice.status === "Non Available" ? "step-unavailable" : ""} ${effectiveItem?.id === choice.id ? "step-current" : ""}`}><small>{choiceIndex === 0 ? "Primary" : `Plan ${String.fromCharCode(65 + choiceIndex)}`}</small><strong>{choice.product.name}</strong>{effectiveItem?.id === choice.id && <em>Current</em>}</span></div>)}</div></div>}
     </div>
   );
 }
