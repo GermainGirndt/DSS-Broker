@@ -6,6 +6,7 @@ import type { OrderItem, Product } from "./interfaces";
 type ItemNode = OrderItem & { id: string; alternativeOrderItem: ItemNode | null };
 type FamilyOrder = { id: string; name: string; items: ItemNode[] };
 type SummaryItem = { personId: string; personName: string; item: ItemNode };
+type AlternativeDraft = { rootId: string; targetId: string; targetName: string; chain: string[] };
 
 const product = (name: string): Product => ({ name });
 const item = (name: string, alternative: ItemNode | null = null): ItemNode => ({
@@ -86,6 +87,7 @@ export default function Home() {
   const [newProduct, setNewProduct] = useState("");
   const [newPerson, setNewPerson] = useState("");
   const [unavailableProducts, setUnavailableProducts] = useState<Set<string>>(() => new Set());
+  const [alternativeDrafts, setAlternativeDrafts] = useState<Record<string, AlternativeDraft>>({});
 
   const summary = useMemo(() => {
     const grouped = new Map<string, SummaryItem[]>();
@@ -111,22 +113,41 @@ export default function Home() {
     setNewPerson("");
   };
 
-  const addOrder = (personId: string, productName: string) => {
-    setOrders((current) => current.map((person) => person.id === personId
-      ? { ...person, items: [...person.items, item(productName)] }
-      : person));
-  };
-
   const changeItem = (personId: string, itemId: string, update: (node: ItemNode) => ItemNode) => {
     setOrders((current) => current.map((person) => person.id === personId
       ? { ...person, items: person.items.map((node) => updateNode(node, itemId, update)) }
       : person));
   };
 
+  const chooseBread = (personId: string, productName: string) => {
+    const draft = alternativeDrafts[personId];
+    const nextItem = item(productName);
+
+    if (!draft) {
+      setOrders((current) => current.map((person) => person.id === personId
+        ? { ...person, items: [...person.items, nextItem] }
+        : person));
+      setAlternativeDrafts((current) => ({ ...current, [personId]: { rootId: nextItem.id, targetId: nextItem.id, targetName: productName, chain: [productName] } }));
+      return;
+    }
+
+    changeItem(personId, draft.targetId, (current) => ({ ...current, alternativeOrderItem: nextItem }));
+    setAlternativeDrafts((current) => ({ ...current, [personId]: { ...draft, targetId: nextItem.id, targetName: productName, chain: [...draft.chain, productName] } }));
+  };
+
+  const finishAlternatives = (personId: string) => {
+    setAlternativeDrafts((current) => {
+      const next = { ...current };
+      delete next[personId];
+      return next;
+    });
+  };
+
   const deleteItem = (personId: string, itemId: string) => {
     setOrders((current) => current.map((person) => person.id === personId
       ? { ...person, items: person.items.filter((node) => node.id !== itemId) }
       : person));
+    if (alternativeDrafts[personId]?.rootId === itemId) finishAlternatives(personId);
   };
 
   const markUnavailable = (entry: SummaryItem) => {
@@ -196,7 +217,10 @@ export default function Home() {
                 ))}
                 {person.items.length === 0 && <p className="empty">No bread selected yet.</p>}
               </div>
-              <div className="add-order"><span>Add to {person.name}&apos;s order</span><div className="bread-choices">{products.map((name) => <button key={name} onClick={() => addOrder(person.id, name)}><Icon name="plus" />{name}</button>)}</div></div>
+              <div className={`add-order ${alternativeDrafts[person.id] ? "choosing-alternative" : ""}`}>
+                {alternativeDrafts[person.id] ? <div className="alternative-prompt"><div><span>Choose an alternative for</span><strong>{alternativeDrafts[person.id].targetName}</strong><small>Click another bread to extend the fallback chain.</small></div><button onClick={() => finishAlternatives(person.id)}><Icon name="check" />Done with alternatives</button></div> : <><span>Add to {person.name}&apos;s order</span><small className="choice-hint">Choose a bread, then optionally choose its alternatives.</small></>}
+                <div className="bread-choices">{products.map((name) => { const alreadyInChain = alternativeDrafts[person.id]?.chain.includes(name); return <button key={name} disabled={alreadyInChain} onClick={() => chooseBread(person.id, name)}>{alternativeDrafts[person.id] ? <Icon name="arrow" /> : <Icon name="plus" />}{name}</button>; })}</div>
+              </div>
               <div className="person-summary"><span>Order summary</span>{tallyItems(person.items).length > 0 ? <div>{tallyItems(person.items).map(([name, count]) => <span className="person-summary-item" key={name}><strong>{count}×</strong>{name}</span>)}</div> : <small>Nothing ordered yet</small>}</div>
             </article>
           ))}
