@@ -44,11 +44,18 @@ input:focus,select:focus { border-color:var(--forest); box-shadow:0 0 0 2px rgba
 .person-form button { border:0; background:var(--forest); color:#fff; font-weight:800; padding:0 17px; display:flex; align-items:center; gap:8px; border-radius:0 8px 8px 0; }
 .order-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,31rem),1fr)); align-items:stretch; gap:22px; }
 .person-card { display:flex; flex-direction:column; background:var(--paper); border:1px solid var(--line); box-shadow:0 8px 24px rgba(37,48,40,.06); }
+.person-card.collapsed { align-self:start; }
 .person-title { padding:21px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:13px; }
-.person-title>div:last-child { min-width:0; }
+.person-title-details { min-width:0; flex:1; }
 .avatar { width:46px; height:46px; display:grid; place-items:center; border-radius:50%; background:#f0c456; font-family:Georgia,serif; font-size:1.35rem; font-weight:700; }
 h3 { margin:0; font-family:Georgia,serif; font-size:1.45rem; overflow-wrap:anywhere; }
 .person-title p { margin:3px 0 0; color:var(--muted); font-size:.75rem; }
+.person-toggle { flex:0 0 auto; display:grid; place-items:center; width:40px; height:40px; border:1px solid #d7d8d0; border-radius:50%; background:#faf9f2; color:var(--forest); }
+.person-toggle:hover { border-color:var(--forest); background:#eef3ef; }
+.person-toggle svg { width:18px; height:18px; transition:transform .18s ease; }
+.person-toggle[aria-expanded="false"] svg { transform:rotate(-90deg); }
+.person-order-content[hidden] { display:none; }
+.person-card.collapsed .person-summary { margin-top:0; }
 .item-list { padding:7px 20px; }
 .order-item { padding:15px 0; border-bottom:1px dashed #d5d5ca; }
 .item-main { display:flex; align-items:center; gap:12px; }
@@ -250,7 +257,7 @@ h3 { margin:0; font-family:Georgia,serif; font-size:1.45rem; overflow-wrap:anywh
 }
 
 @media (pointer:coarse) {
-  .chip>button,.delete-item { width:44px; height:44px; }
+  .chip>button,.delete-item,.person-toggle { width:44px; height:44px; }
   .inline-form button,.person-form button,.alternative-prompt>button,.bread-choices button,.undo-notice>button,.summary-action button { min-height:44px; }
 }
 

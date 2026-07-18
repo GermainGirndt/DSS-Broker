@@ -8,16 +8,18 @@ type FamilyOrder = { id: string; name: string; items: ItemNode[] };
 type CatalogProduct = { name: string };
 type SummaryItem = { personId: string; personName: string; item: ItemNode; isNext?: boolean };
 type AlternativeDraft = { rootId: string; targetId: string; targetName: string; chain: string[] };
+type StatusChange = { itemId: string; previousStatus: OrderItem["status"] };
 type PickupHistoryEntry = {
-  previousOrders: FamilyOrder[];
+  statusChanges: StatusChange[];
   previousUnavailableProducts: Set<string>;
   message: string;
 };
 type PersistedAppState = {
-  version: 1;
+  version: number;
   products: CatalogProduct[];
   orders: FamilyOrder[];
   unavailableProducts: string[];
+  collapsedPeople: string[];
   alternativeDrafts: Record<string, AlternativeDraft>;
   pickupHistory: Array<Omit<PickupHistoryEntry, "previousUnavailableProducts"> & { previousUnavailableProducts: string[] }>;
 };
@@ -98,6 +100,25 @@ function markProductUnavailable(node: ItemNode, productName: string): ItemNode {
   };
 }
 
+function collectProductStatusChanges(node: ItemNode, productName: string): StatusChange[] {
+  const currentChange = node.product.name === productName && node.status !== "Concluded" && node.status !== "Non Available"
+    ? [{ itemId: node.id, previousStatus: node.status }]
+    : [];
+  return node.alternativeOrderItem
+    ? [...currentChange, ...collectProductStatusChanges(node.alternativeOrderItem, productName)]
+    : currentChange;
+}
+
+function restoreStatuses(node: ItemNode, previousStatuses: Map<string, OrderItem["status"]>): ItemNode {
+  return {
+    ...node,
+    status: previousStatuses.get(node.id) ?? node.status,
+    alternativeOrderItem: node.alternativeOrderItem
+      ? restoreStatuses(node.alternativeOrderItem, previousStatuses)
+      : null,
+  };
+}
+
 function tallyItems(items: ItemNode[]) {
   const tally = new Map<string, number>();
   items.forEach((root) => {
@@ -114,7 +135,7 @@ function updateNode(node: ItemNode, id: string, update: (value: ItemNode) => Ite
     : node;
 }
 
-function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check" | "x" | "arrow" | "trash" | "undo" }) {
+function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check" | "x" | "arrow" | "trash" | "undo" | "chevron" }) {
   const paths = {
     bread: <><path d="M6 9.5C3.8 9.5 2 7.9 2 6s1.8-3.5 4-3.5c.8-1 2-1.5 3.2-1.5 1.8 0 3.3 1 4 2.4.5-.2 1-.4 1.6-.4C17.1 3 19 4.8 19 7v8.5c0 1.4-1.1 2.5-2.5 2.5h-11C4.1 18 3 16.9 3 15.5V8.8"/><path d="M7 6.5 9 5m2.5 1.5 2-1.5"/></>,
     people: <><circle cx="8" cy="7" r="3"/><path d="M2.5 18c.4-3.2 2.2-5 5.5-5s5.1 1.8 5.5 5M14 5.2a3 3 0 0 1 0 5.6M15.5 13c2.4.3 3.7 2 4 5"/></>,
@@ -125,6 +146,7 @@ function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check"
     arrow: <path d="M5 12h14m-5-5 5 5-5 5"/>,
     trash: <><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></>,
     undo: <><path d="M9 7 4 12l5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></>,
+    chevron: <path d="m6 9 6 6 6-6"/>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -137,6 +159,7 @@ export default function Home() {
   const [unavailableProducts, setUnavailableProducts] = useState<Set<string>>(() => new Set());
   const [alternativeDrafts, setAlternativeDrafts] = useState<Record<string, AlternativeDraft>>({});
   const [pickupHistory, setPickupHistory] = useState<PickupHistoryEntry[]>([]);
+  const [collapsedPeople, setCollapsedPeople] = useState<Set<string>>(() => new Set());
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
@@ -147,14 +170,15 @@ export default function Home() {
         const rawState = window.localStorage.getItem(STORAGE_KEY);
         if (!rawState) return;
         const savedState = JSON.parse(rawState) as Partial<PersistedAppState>;
-        if (savedState.version !== 1 || !Array.isArray(savedState.products) || !Array.isArray(savedState.orders)) return;
+        if (![1, 2].includes(savedState.version ?? 0) || !Array.isArray(savedState.products) || !Array.isArray(savedState.orders)) return;
 
         setProducts(savedState.products);
         setOrders(savedState.orders);
         setUnavailableProducts(new Set(Array.isArray(savedState.unavailableProducts) ? savedState.unavailableProducts : []));
+        setCollapsedPeople(new Set(Array.isArray(savedState.collapsedPeople) ? savedState.collapsedPeople : []));
         setAlternativeDrafts(savedState.alternativeDrafts && typeof savedState.alternativeDrafts === "object" ? savedState.alternativeDrafts : {});
-        setPickupHistory(Array.isArray(savedState.pickupHistory) ? savedState.pickupHistory.map((entry) => ({
-          previousOrders: entry.previousOrders,
+        setPickupHistory(savedState.version === 2 && Array.isArray(savedState.pickupHistory) ? savedState.pickupHistory.map((entry) => ({
+          statusChanges: Array.isArray(entry.statusChanges) ? entry.statusChanges : [],
           previousUnavailableProducts: new Set(entry.previousUnavailableProducts),
           message: entry.message,
         })) : []);
@@ -172,13 +196,14 @@ export default function Home() {
   useEffect(() => {
     if (!storageReady) return;
     const stateToPersist: PersistedAppState = {
-      version: 1,
+      version: 2,
       products,
       orders,
       unavailableProducts: [...unavailableProducts],
+      collapsedPeople: [...collapsedPeople],
       alternativeDrafts,
       pickupHistory: pickupHistory.map((entry) => ({
-        previousOrders: entry.previousOrders,
+        statusChanges: entry.statusChanges,
         previousUnavailableProducts: [...entry.previousUnavailableProducts],
         message: entry.message,
       })),
@@ -188,7 +213,7 @@ export default function Home() {
     } catch {
       // The app remains usable if storage is blocked or full.
     }
-  }, [alternativeDrafts, orders, pickupHistory, products, storageReady, unavailableProducts]);
+  }, [alternativeDrafts, collapsedPeople, orders, pickupHistory, products, storageReady, unavailableProducts]);
 
   const summary = useMemo(() => {
     const grouped = new Map<string, SummaryItem[]>();
@@ -222,7 +247,6 @@ export default function Home() {
     const name = newProduct.trim();
     if (!name || products.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) return;
     setProducts((current) => [...current, { name }]);
-    setPickupHistory([]);
     setNewProduct("");
   };
 
@@ -233,15 +257,22 @@ export default function Home() {
       next.delete(productName);
       return next;
     });
-    setPickupHistory([]);
   };
 
   const addPerson = () => {
     const name = newPerson.trim();
     if (!name) return;
     setOrders((current) => [...current, { id: crypto.randomUUID(), name, items: [] }]);
-    setPickupHistory([]);
     setNewPerson("");
+  };
+
+  const togglePersonCard = (personId: string) => {
+    setCollapsedPeople((current) => {
+      const next = new Set(current);
+      if (next.has(personId)) next.delete(personId);
+      else next.add(personId);
+      return next;
+    });
   };
 
   const changeItem = (personId: string, itemId: string, update: (node: ItemNode) => ItemNode) => {
@@ -259,13 +290,11 @@ export default function Home() {
         ? { ...person, items: [...person.items, nextItem] }
         : person));
       setAlternativeDrafts((current) => ({ ...current, [personId]: { rootId: nextItem.id, targetId: nextItem.id, targetName: productName, chain: [productName] } }));
-      setPickupHistory([]);
       return;
     }
 
     changeItem(personId, draft.targetId, (current) => ({ ...current, alternativeOrderItem: nextItem }));
     setAlternativeDrafts((current) => ({ ...current, [personId]: { ...draft, targetId: nextItem.id, targetName: productName, chain: [...draft.chain, productName] } }));
-    setPickupHistory([]);
   };
 
   const finishAlternatives = (personId: string) => {
@@ -281,12 +310,11 @@ export default function Home() {
       ? { ...person, items: person.items.filter((node) => node.id !== itemId) }
       : person));
     if (alternativeDrafts[personId]?.rootId === itemId) finishAlternatives(personId);
-    setPickupHistory([]);
   };
 
-  const rememberPickupAction = (message: string) => {
+  const rememberPickupAction = (message: string, statusChanges: StatusChange[]) => {
     setPickupHistory((current) => [...current, {
-      previousOrders: orders,
+      statusChanges,
       previousUnavailableProducts: new Set(unavailableProducts),
       message,
     }].slice(-20));
@@ -294,20 +322,29 @@ export default function Home() {
 
   const markConcluded = (entry: SummaryItem) => {
     if (entry.item.status === "Concluded") return;
-    rememberPickupAction(`${entry.personName}’s ${entry.item.product.name} was marked concluded.`);
+    rememberPickupAction(`${entry.personName}’s ${entry.item.product.name} was marked concluded.`, [{
+      itemId: entry.item.id,
+      previousStatus: entry.item.status,
+    }]);
     changeItem(entry.personId, entry.item.id, (current) => ({ ...current, status: "Concluded" }));
   };
 
   const undoLastPickupAction = () => {
     const lastAction = pickupHistory[pickupHistory.length - 1];
     if (!lastAction) return;
-    setOrders(lastAction.previousOrders);
+    const previousStatuses = new Map(lastAction.statusChanges.map((change) => [change.itemId, change.previousStatus]));
+    setOrders((current) => current.map((person) => ({
+      ...person,
+      items: person.items.map((node) => restoreStatuses(node, previousStatuses)),
+    })));
     setUnavailableProducts(new Set(lastAction.previousUnavailableProducts));
     setPickupHistory((current) => current.slice(0, -1));
   };
 
   const markUnavailable = (entry: SummaryItem) => {
-    rememberPickupAction(`${entry.item.product.name} was marked unavailable; remaining orders moved to alternatives.`);
+    const statusChanges = orders.flatMap((person) => person.items.flatMap((node) =>
+      collectProductStatusChanges(node, entry.item.product.name)));
+    rememberPickupAction(`${entry.item.product.name} was marked unavailable; remaining orders moved to alternatives.`, statusChanges);
     const knownUnavailable = new Set(unavailableProducts).add(entry.item.product.name);
     const nextOrders = orders.map((person) => ({
       ...person,
@@ -354,22 +391,28 @@ export default function Home() {
         </div>
 
         <div className="order-grid">
-          {orders.map((person) => (
-            <article className="person-card" key={person.id}>
-              <div className="person-title"><div className="avatar">{person.name.charAt(0).toUpperCase()}</div><div><h3>{person.name}</h3><p>{person.items.length} {person.items.length === 1 ? "item" : "items"}</p></div></div>
-              <div className="item-list">
-                {person.items.map((orderItem, index) => (
-                  <OrderRow key={orderItem.id} node={orderItem} index={index + 1} onDelete={() => deleteItem(person.id, orderItem.id)} />
-                ))}
-                {person.items.length === 0 && <p className="empty">No bread selected yet.</p>}
-              </div>
-              <div className={`add-order ${alternativeDrafts[person.id] ? "choosing-alternative" : ""}`}>
-                {alternativeDrafts[person.id] ? <div className="alternative-prompt"><div><span>Choose an alternative for</span><strong>{alternativeDrafts[person.id].targetName}</strong><small>Click another bread to extend the fallback chain.</small></div><button onClick={() => finishAlternatives(person.id)}><Icon name="check" />Done with alternatives</button></div> : <><span>Add to {person.name}&apos;s order</span><small className="choice-hint">Choose a bread, then optionally choose its alternatives.</small></>}
-                <div className="bread-choices">{products.map(({ name }) => { const alreadyInChain = alternativeDrafts[person.id]?.chain.includes(name); return <button key={name} disabled={alreadyInChain} onClick={() => chooseBread(person.id, name)}>{alternativeDrafts[person.id] ? <Icon name="arrow" /> : <Icon name="plus" />}{name}</button>; })}</div>
-              </div>
-              <div className="person-summary"><span>Order summary</span>{tallyItems(person.items).length > 0 ? <div>{tallyItems(person.items).map(([name, count]) => <span className="person-summary-item" key={name}><strong>{count}×</strong>{name}</span>)}</div> : <small>Nothing ordered yet</small>}</div>
-            </article>
-          ))}
+          {orders.map((person) => {
+            const collapsed = collapsedPeople.has(person.id);
+            const contentId = `person-orders-${person.id}`;
+            return (
+              <article className={`person-card ${collapsed ? "collapsed" : ""}`} key={person.id}>
+                <div className="person-title"><div className="avatar">{person.name.charAt(0).toUpperCase()}</div><div className="person-title-details"><h3>{person.name}</h3><p>{person.items.length} {person.items.length === 1 ? "item" : "items"}</p></div><button className="person-toggle" onClick={() => togglePersonCard(person.id)} aria-expanded={!collapsed} aria-controls={contentId} aria-label={`${collapsed ? "Expand" : "Minimize"} ${person.name}’s orders`} title={collapsed ? "Expand orders" : "Minimize orders"}><Icon name="chevron" /></button></div>
+                <div className="person-order-content" id={contentId} hidden={collapsed}>
+                  <div className="item-list">
+                    {person.items.map((orderItem, index) => (
+                      <OrderRow key={orderItem.id} node={orderItem} index={index + 1} onDelete={() => deleteItem(person.id, orderItem.id)} />
+                    ))}
+                    {person.items.length === 0 && <p className="empty">No bread selected yet.</p>}
+                  </div>
+                  <div className={`add-order ${alternativeDrafts[person.id] ? "choosing-alternative" : ""}`}>
+                    {alternativeDrafts[person.id] ? <div className="alternative-prompt"><div><span>Choose an alternative for</span><strong>{alternativeDrafts[person.id].targetName}</strong><small>Click another bread to extend the fallback chain.</small></div><button onClick={() => finishAlternatives(person.id)}><Icon name="check" />Done with alternatives</button></div> : <><span>Add to {person.name}&apos;s order</span><small className="choice-hint">Choose a bread, then optionally choose its alternatives.</small></>}
+                    <div className="bread-choices">{products.map(({ name }) => { const alreadyInChain = alternativeDrafts[person.id]?.chain.includes(name); return <button key={name} disabled={alreadyInChain} onClick={() => chooseBread(person.id, name)}>{alternativeDrafts[person.id] ? <Icon name="arrow" /> : <Icon name="plus" />}{name}</button>; })}</div>
+                  </div>
+                </div>
+                <div className="person-summary"><span>Order summary</span>{tallyItems(person.items).length > 0 ? <div>{tallyItems(person.items).map(([name, count]) => <span className="person-summary-item" key={name}><strong>{count}×</strong>{name}</span>)}</div> : <small>Nothing ordered yet</small>}</div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
