@@ -5,12 +5,11 @@ import type { OrderItem, Product } from "./interfaces";
 
 type ItemNode = OrderItem & { id: string; alternativeOrderItem: ItemNode | null };
 type FamilyOrder = { id: string; name: string; items: ItemNode[] };
-type SummaryItem = { personId: string; personName: string; item: ItemNode };
+type CatalogProduct = { name: string };
+type SummaryItem = { personId: string; personName: string; item: ItemNode; isNext?: boolean };
 type AlternativeDraft = { rootId: string; targetId: string; targetName: string; chain: string[] };
 type PickupHistoryEntry = {
-  personId: string;
-  itemId: string;
-  previousItem: ItemNode;
+  previousOrders: FamilyOrder[];
   previousUnavailableProducts: Set<string>;
   message: string;
 };
@@ -23,7 +22,7 @@ const item = (name: string, alternative: ItemNode | null = null): ItemNode => ({
   status: "Not Processed",
 });
 
-const starterProducts = [
+const starterProductNames = [
   "Tomatine-Bread",
   "DSS-Bread",
   "Pfferbrezel-Bread",
@@ -31,6 +30,8 @@ const starterProducts = [
   "Bauernweckla",
   "Vollkornbrötchen-Bread",
 ];
+
+const starterProducts: CatalogProduct[] = starterProductNames.map((name) => ({ name }));
 
 function starterOrders(): FamilyOrder[] {
   return [
@@ -66,6 +67,25 @@ function itemSequence(node: ItemNode) {
     current = current.alternativeOrderItem;
   }
   return sequence;
+}
+
+function stableTieBreaker(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function markProductUnavailable(node: ItemNode, productName: string): ItemNode {
+  return {
+    ...node,
+    status: node.product.name === productName && node.status !== "Concluded" ? "Non Available" : node.status,
+    alternativeOrderItem: node.alternativeOrderItem
+      ? markProductUnavailable(node.alternativeOrderItem, productName)
+      : null,
+  };
 }
 
 function tallyItems(items: ItemNode[]) {
@@ -115,29 +135,48 @@ export default function Home() {
       if (!current) return;
       grouped.set(current.product.name, [...(grouped.get(current.product.name) ?? []), { personId: person.id, personName: person.name, item: current }]);
     }));
-    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const fulfilledByPerson = new Map(orders.map((person) => [person.id, person.items.filter((root) => activeItem(root)?.status === "Concluded").length]));
+    const requestedByPerson = new Map(orders.map((person) => [person.id, person.items.length]));
+    const fairGroups: Array<[string, SummaryItem[]]> = [...grouped.entries()].map(([name, entries]) => {
+      const pending = entries.filter((entry) => entry.item.status !== "Concluded").sort((a, b) => {
+        const aRatio = (fulfilledByPerson.get(a.personId) ?? 0) / (requestedByPerson.get(a.personId) || 1);
+        const bRatio = (fulfilledByPerson.get(b.personId) ?? 0) / (requestedByPerson.get(b.personId) || 1);
+        if (aRatio !== bRatio) return aRatio - bRatio;
+        return stableTieBreaker(`${name}:${a.personId}:${a.item.id}`) - stableTieBreaker(`${name}:${b.personId}:${b.item.id}`);
+      });
+      const concluded = entries.filter((entry) => entry.item.status === "Concluded");
+      return [name, [...pending.map((entry, index) => ({ ...entry, isNext: index === 0 })), ...concluded]];
+    });
+    return fairGroups.sort(([a], [b]) => a.localeCompare(b));
   }, [orders]);
+
+  const unfulfilledOrders = orders.flatMap((person) => person.items
+    .filter((root) => !activeItem(root))
+    .map((root) => ({ personName: person.name, root })));
 
   const addProduct = () => {
     const name = newProduct.trim();
-    if (!name || products.some((entry) => entry.toLowerCase() === name.toLowerCase())) return;
-    setProducts((current) => [...current, name]);
+    if (!name || products.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) return;
+    setProducts((current) => [...current, { name }]);
+    setPickupHistory([]);
     setNewProduct("");
   };
 
   const deleteProduct = (productName: string) => {
-    setProducts((current) => current.filter((name) => name !== productName));
+    setProducts((current) => current.filter((entry) => entry.name !== productName));
     setUnavailableProducts((current) => {
       const next = new Set(current);
       next.delete(productName);
       return next;
     });
+    setPickupHistory([]);
   };
 
   const addPerson = () => {
     const name = newPerson.trim();
     if (!name) return;
     setOrders((current) => [...current, { id: crypto.randomUUID(), name, items: [] }]);
+    setPickupHistory([]);
     setNewPerson("");
   };
 
@@ -156,11 +195,13 @@ export default function Home() {
         ? { ...person, items: [...person.items, nextItem] }
         : person));
       setAlternativeDrafts((current) => ({ ...current, [personId]: { rootId: nextItem.id, targetId: nextItem.id, targetName: productName, chain: [productName] } }));
+      setPickupHistory([]);
       return;
     }
 
     changeItem(personId, draft.targetId, (current) => ({ ...current, alternativeOrderItem: nextItem }));
     setAlternativeDrafts((current) => ({ ...current, [personId]: { ...draft, targetId: nextItem.id, targetName: productName, chain: [...draft.chain, productName] } }));
+    setPickupHistory([]);
   };
 
   const finishAlternatives = (personId: string) => {
@@ -176,14 +217,12 @@ export default function Home() {
       ? { ...person, items: person.items.filter((node) => node.id !== itemId) }
       : person));
     if (alternativeDrafts[personId]?.rootId === itemId) finishAlternatives(personId);
-    setPickupHistory((current) => current.filter((entry) => !(entry.personId === personId && entry.itemId === itemId)));
+    setPickupHistory([]);
   };
 
-  const rememberPickupAction = (entry: SummaryItem, message: string) => {
+  const rememberPickupAction = (message: string) => {
     setPickupHistory((current) => [...current, {
-      personId: entry.personId,
-      itemId: entry.item.id,
-      previousItem: entry.item,
+      previousOrders: orders,
       previousUnavailableProducts: new Set(unavailableProducts),
       message,
     }].slice(-20));
@@ -191,38 +230,27 @@ export default function Home() {
 
   const markConcluded = (entry: SummaryItem) => {
     if (entry.item.status === "Concluded") return;
-    rememberPickupAction(entry, `${entry.personName}’s ${entry.item.product.name} was marked concluded.`);
+    rememberPickupAction(`${entry.personName}’s ${entry.item.product.name} was marked concluded.`);
     changeItem(entry.personId, entry.item.id, (current) => ({ ...current, status: "Concluded" }));
   };
 
   const undoLastPickupAction = () => {
     const lastAction = pickupHistory[pickupHistory.length - 1];
     if (!lastAction) return;
-    changeItem(lastAction.personId, lastAction.itemId, () => lastAction.previousItem);
+    setOrders(lastAction.previousOrders);
     setUnavailableProducts(new Set(lastAction.previousUnavailableProducts));
     setPickupHistory((current) => current.slice(0, -1));
   };
 
   const markUnavailable = (entry: SummaryItem) => {
-    rememberPickupAction(entry, `${entry.personName}’s ${entry.item.product.name} was marked not available.`);
+    rememberPickupAction(`${entry.item.product.name} was marked unavailable; remaining orders moved to alternatives.`);
     const knownUnavailable = new Set(unavailableProducts).add(entry.item.product.name);
-    setUnavailableProducts(knownUnavailable);
-
-    const preparedAlternatives: string[] = [];
-    let alternative = entry.item.alternativeOrderItem;
-    while (alternative) {
-      if (!knownUnavailable.has(alternative.product.name)) preparedAlternatives.push(alternative.product.name);
-      alternative = alternative.alternativeOrderItem;
-    }
-    const availableProducts = products.filter((name) => !knownUnavailable.has(name));
-    const choices = preparedAlternatives.length > 0 ? preparedAlternatives : availableProducts;
-    const replacement = choices[Math.floor(Math.random() * choices.length)];
-
-    changeItem(entry.personId, entry.item.id, (current) => ({
-      ...current,
-      status: "Non Available",
-      alternativeOrderItem: replacement ? item(replacement) : null,
+    const nextOrders = orders.map((person) => ({
+      ...person,
+      items: person.items.map((node) => markProductUnavailable(node, entry.item.product.name)),
     }));
+    setUnavailableProducts(knownUnavailable);
+    setOrders(nextOrders);
   };
 
   return (
@@ -244,7 +272,7 @@ export default function Home() {
         </div>
         <div className="product-bar">
           <div className="chips">
-            {products.map((name) => <span className="chip" key={name}><span className="grain">✦</span><span>{name}</span><button onClick={() => deleteProduct(name)} aria-label={`Delete ${name} from available breads`} title="Delete available bread"><Icon name="x" /></button></span>)}
+            {products.map(({ name }) => <span className="chip" key={name}><span className="grain">✦</span><span>{name}</span><button onClick={() => deleteProduct(name)} aria-label={`Delete ${name} from available breads`} title="Delete available bread"><Icon name="x" /></button></span>)}
           </div>
           <form className="inline-form" onSubmit={(event) => { event.preventDefault(); addProduct(); }}>
             <label htmlFor="product">Add a bread</label>
@@ -273,7 +301,7 @@ export default function Home() {
               </div>
               <div className={`add-order ${alternativeDrafts[person.id] ? "choosing-alternative" : ""}`}>
                 {alternativeDrafts[person.id] ? <div className="alternative-prompt"><div><span>Choose an alternative for</span><strong>{alternativeDrafts[person.id].targetName}</strong><small>Click another bread to extend the fallback chain.</small></div><button onClick={() => finishAlternatives(person.id)}><Icon name="check" />Done with alternatives</button></div> : <><span>Add to {person.name}&apos;s order</span><small className="choice-hint">Choose a bread, then optionally choose its alternatives.</small></>}
-                <div className="bread-choices">{products.map((name) => { const alreadyInChain = alternativeDrafts[person.id]?.chain.includes(name); return <button key={name} disabled={alreadyInChain} onClick={() => chooseBread(person.id, name)}>{alternativeDrafts[person.id] ? <Icon name="arrow" /> : <Icon name="plus" />}{name}</button>; })}</div>
+                <div className="bread-choices">{products.map(({ name }) => { const alreadyInChain = alternativeDrafts[person.id]?.chain.includes(name); return <button key={name} disabled={alreadyInChain} onClick={() => chooseBread(person.id, name)}>{alternativeDrafts[person.id] ? <Icon name="arrow" /> : <Icon name="plus" />}{name}</button>; })}</div>
               </div>
               <div className="person-summary"><span>Order summary</span>{tallyItems(person.items).length > 0 ? <div>{tallyItems(person.items).map(([name, count]) => <span className="person-summary-item" key={name}><strong>{count}×</strong>{name}</span>)}</div> : <small>Nothing ordered yet</small>}</div>
             </article>
@@ -282,11 +310,12 @@ export default function Home() {
       </section>
 
       <section className="summary-section">
-        <div className="summary-intro"><span className="number light">03</span><p className="eyebrow">READY FOR THE COUNTER</p><h2>Bakery summary</h2><p>Everything grouped by bread, with unavailable picks automatically swapped for their next alternative.</p></div>
+        <div className="summary-intro"><span className="number light">03</span><p className="eyebrow">READY FOR THE COUNTER</p><h2>Bakery summary</h2><p>No stock estimate needed. Ask for the highlighted family order first; every successful pickup updates the next fairest turn. If the bakery runs out, all remaining requests move to their alternatives.</p><div className="counter-guide"><span><strong>1</strong>Ask highlighted order</span><span><strong>2</strong>Record the answer</span><span><strong>3</strong>Continue with the next turn</span></div></div>
         <div className="receipt">
           <div className="receipt-top"><div><Icon name="basket" /><span>PICKUP LIST</span></div><strong>{summary.reduce((sum, [, names]) => sum + names.length, 0)} TOTAL</strong></div>
           {pickupHistory.length > 0 && <div className="undo-notice" role="status" aria-live="polite"><div><Icon name="undo" /><span><strong>Last action</strong>{pickupHistory[pickupHistory.length - 1].message}</span></div><button onClick={undoLastPickupAction}><Icon name="undo" />Undo{pickupHistory.length > 1 && <small>{pickupHistory.length} steps</small>}</button></div>}
-          {summary.map(([name, entries]) => <div className="summary-row" key={name}><span className="quantity">{entries.length}×</span><div className="summary-product"><strong>{name}</strong><small>for {entries.map((entry) => entry.personName).join(", ")}</small><div className="summary-actions">{entries.map((entry) => <div className="summary-action" key={entry.item.id}><span>{entry.personName}<em className={entry.item.status === "Concluded" ? "done" : "pending"}>{entry.item.status}</em></span><button className={`success ${entry.item.status === "Concluded" ? "active" : ""}`} onClick={() => markConcluded(entry)}><Icon name="check" />Concluded</button><button className="danger" onClick={() => markUnavailable(entry)}><Icon name="x" />Not available</button></div>)}</div></div></div>)}
+          {summary.map(([name, entries]) => <div className="summary-row" key={name}><span className="quantity">{entries.length}×</span><div className="summary-product"><strong>{name}</strong><small>for {entries.map((entry) => entry.personName).join(", ")}</small><div className="summary-actions">{entries.map((entry) => { const concluded = entry.item.status === "Concluded"; return <div className={`summary-action ${entry.isNext ? "next-turn" : ""}`} key={entry.item.id}><span>{entry.personName}{entry.isNext && <small className="queue-position">Ask next · fair turn</small>}{!entry.isNext && !concluded && <small className="queue-position waiting">Waiting for turn</small>}<em className={concluded ? "done" : "pending"}>{entry.item.status}</em></span><button disabled={!entry.isNext} className={`success ${concluded ? "active" : ""}`} onClick={() => markConcluded(entry)}><Icon name="check" />Concluded</button><button disabled={!entry.isNext} className="danger" onClick={() => markUnavailable(entry)}><Icon name="x" />Not available</button></div>; })}</div></div></div>)}
+          {unfulfilledOrders.length > 0 && <div className="unfulfilled-list"><strong>No alternative remaining</strong>{unfulfilledOrders.map(({ personName, root }) => <div key={root.id}><Icon name="x" /><span>{personName}<small>{root.product.name} and every chosen alternative were unavailable</small></span></div>)}</div>}
           {summary.length === 0 && <p className="summary-empty">Your basket is empty.</p>}
           <div className="receipt-bottom"><span>GOOD TO GO</span><span>✦ DSS · BAKERY ✦</span></div>
         </div>
@@ -302,7 +331,7 @@ function OrderRow({ node, index, onDelete }: { node: ItemNode; index: number; on
   return (
     <div className={`order-item ${node.status === "Non Available" ? "unavailable" : ""}`}>
       <div className="item-main"><span className="item-index">{String(index).padStart(2, "0")}</span><div className="item-name"><strong>{node.product.name}</strong>{sequence.length > 1 && <small>{sequence.length - 1} alternative{sequence.length > 2 ? "s" : ""}</small>}</div>{onDelete && <button className="delete-item" onClick={onDelete} aria-label={`Delete ${node.product.name}`} title="Delete order item"><Icon name="trash" /></button>}</div>
-      {sequence.length > 1 && <div className="fallback-route"><span>Fallback sequence</span><div className="fallback-steps">{sequence.map((choice, choiceIndex) => <div className="fallback-step-wrap" key={choice.id}>{choiceIndex > 0 && <Icon name="arrow" />}<span className={`fallback-step ${choice.status === "Non Available" ? "step-unavailable" : ""} ${effectiveItem?.id === choice.id ? "step-current" : ""}`}><small>{choiceIndex === 0 ? "Primary" : `Plan ${String.fromCharCode(65 + choiceIndex)}`}</small><strong>{choice.product.name}</strong>{effectiveItem?.id === choice.id && <em>Current</em>}</span></div>)}</div></div>}
+      {sequence.length > 1 && <div className="fallback-route"><span>Fallback sequence</span><div className="fallback-steps">{sequence.map((choice, choiceIndex) => { const isCurrent = effectiveItem?.id === choice.id; const isConcluded = choice.status === "Concluded"; return <div className="fallback-step-wrap" key={choice.id}>{choiceIndex > 0 && <Icon name="arrow" />}<span className={`fallback-step ${choice.status === "Non Available" ? "step-unavailable" : ""} ${isCurrent ? "step-current" : ""} ${isConcluded ? "step-concluded" : ""}`}><small>{choiceIndex === 0 ? "Primary" : `Plan ${String.fromCharCode(65 + choiceIndex)}`}</small><strong>{choice.product.name}</strong>{isConcluded ? <em><Icon name="check" />Picked up</em> : isCurrent && <em>Current choice</em>}</span></div>; })}</div></div>}
     </div>
   );
 }
