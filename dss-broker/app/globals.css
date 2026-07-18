@@ -50,8 +50,12 @@ input:focus,select:focus { border-color:var(--forest); box-shadow:0 0 0 2px rgba
 .avatar { width:46px; height:46px; display:grid; place-items:center; border-radius:50%; background:#f0c456; font-family:Georgia,serif; font-size:1.35rem; font-weight:700; }
 h3 { margin:0; font-family:Georgia,serif; font-size:1.45rem; overflow-wrap:anywhere; }
 .person-title p { margin:3px 0 0; color:var(--muted); font-size:.75rem; }
-.person-toggle { flex:0 0 auto; display:grid; place-items:center; width:40px; height:40px; border:1px solid #d7d8d0; border-radius:50%; background:#faf9f2; color:var(--forest); }
+.person-title-actions { flex:0 0 auto; display:flex; gap:6px; }
+.person-toggle,.person-remove { flex:0 0 auto; display:grid; place-items:center; width:40px; height:40px; border:1px solid #d7d8d0; border-radius:50%; background:#faf9f2; color:var(--forest); }
 .person-toggle:hover { border-color:var(--forest); background:#eef3ef; }
+.person-remove { color:#a54c36; }
+.person-remove:hover { border-color:#c65c42; background:#fff0eb; color:#b44127; }
+.person-remove svg { width:17px; height:17px; }
 .person-toggle svg { width:18px; height:18px; transition:transform .18s ease; }
 .person-toggle[aria-expanded="false"] svg { transform:rotate(-90deg); }
 .person-order-content[hidden] { display:none; }
@@ -257,7 +261,7 @@ h3 { margin:0; font-family:Georgia,serif; font-size:1.45rem; overflow-wrap:anywh
 }
 
 @media (pointer:coarse) {
-  .chip>button,.delete-item,.person-toggle { width:44px; height:44px; }
+  .chip>button,.delete-item,.person-toggle,.person-remove { width:44px; height:44px; }
   .inline-form button,.person-form button,.alternative-prompt>button,.bread-choices button,.undo-notice>button,.summary-action button { min-height:44px; }
 }
 
