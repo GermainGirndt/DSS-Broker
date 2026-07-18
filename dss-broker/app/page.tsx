@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { OrderItem, Product } from "./interfaces";
 
 type ItemNode = OrderItem & { id: string; alternativeOrderItem: ItemNode | null };
@@ -13,10 +13,20 @@ type PickupHistoryEntry = {
   previousUnavailableProducts: Set<string>;
   message: string;
 };
+type PersistedAppState = {
+  version: 1;
+  products: CatalogProduct[];
+  orders: FamilyOrder[];
+  unavailableProducts: string[];
+  alternativeDrafts: Record<string, AlternativeDraft>;
+  pickupHistory: Array<Omit<PickupHistoryEntry, "previousUnavailableProducts"> & { previousUnavailableProducts: string[] }>;
+};
+
+const STORAGE_KEY = "dss-broker:state:v1";
 
 const product = (name: string): Product => ({ name });
-const item = (name: string, alternative: ItemNode | null = null): ItemNode => ({
-  id: crypto.randomUUID(),
+const item = (name: string, alternative: ItemNode | null = null, id = crypto.randomUUID()): ItemNode => ({
+  id,
   product: product(name),
   alternativeOrderItem: alternative,
   status: "Not Processed",
@@ -36,19 +46,19 @@ const starterProducts: CatalogProduct[] = starterProductNames.map((name) => ({ n
 function starterOrders(): FamilyOrder[] {
   return [
     {
-      id: crypto.randomUUID(),
+      id: "starter-person-germain",
       name: "Germain",
       items: [
-        item("Tomatine-Bread", item("DSS-Bread", item("Pfferbrezel-Bread"))),
-        item("Vinschgauer-Bread", item("Bauernweckla")),
+        item("Tomatine-Bread", item("DSS-Bread", item("Pfferbrezel-Bread", null, "starter-germain-pffer"), "starter-germain-dss"), "starter-germain-tomatine"),
+        item("Vinschgauer-Bread", item("Bauernweckla", null, "starter-germain-bauern"), "starter-germain-vinschgauer"),
       ],
     },
     {
-      id: crypto.randomUUID(),
+      id: "starter-person-johanna",
       name: "Johanna",
       items: [
-        item("Pfferbrezel-Bread", item("Vollkornbrötchen-Bread")),
-        item("Tomatine-Bread"),
+        item("Pfferbrezel-Bread", item("Vollkornbrötchen-Bread", null, "starter-johanna-vollkorn"), "starter-johanna-pffer"),
+        item("Tomatine-Bread", null, "starter-johanna-tomatine"),
       ],
     },
   ];
@@ -127,6 +137,58 @@ export default function Home() {
   const [unavailableProducts, setUnavailableProducts] = useState<Set<string>>(() => new Set());
   const [alternativeDrafts, setAlternativeDrafts] = useState<Record<string, AlternativeDraft>>({});
   const [pickupHistory, setPickupHistory] = useState<PickupHistoryEntry[]>([]);
+  const [storageReady, setStorageReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const rawState = window.localStorage.getItem(STORAGE_KEY);
+        if (!rawState) return;
+        const savedState = JSON.parse(rawState) as Partial<PersistedAppState>;
+        if (savedState.version !== 1 || !Array.isArray(savedState.products) || !Array.isArray(savedState.orders)) return;
+
+        setProducts(savedState.products);
+        setOrders(savedState.orders);
+        setUnavailableProducts(new Set(Array.isArray(savedState.unavailableProducts) ? savedState.unavailableProducts : []));
+        setAlternativeDrafts(savedState.alternativeDrafts && typeof savedState.alternativeDrafts === "object" ? savedState.alternativeDrafts : {});
+        setPickupHistory(Array.isArray(savedState.pickupHistory) ? savedState.pickupHistory.map((entry) => ({
+          previousOrders: entry.previousOrders,
+          previousUnavailableProducts: new Set(entry.previousUnavailableProducts),
+          message: entry.message,
+        })) : []);
+      } catch {
+        // Ignore corrupt or inaccessible storage and keep the starter state.
+      } finally {
+        if (!cancelled) setStorageReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    const stateToPersist: PersistedAppState = {
+      version: 1,
+      products,
+      orders,
+      unavailableProducts: [...unavailableProducts],
+      alternativeDrafts,
+      pickupHistory: pickupHistory.map((entry) => ({
+        previousOrders: entry.previousOrders,
+        previousUnavailableProducts: [...entry.previousUnavailableProducts],
+        message: entry.message,
+      })),
+    };
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToPersist));
+    } catch {
+      // The app remains usable if storage is blocked or full.
+    }
+  }, [alternativeDrafts, orders, pickupHistory, products, storageReady, unavailableProducts]);
 
   const summary = useMemo(() => {
     const grouped = new Map<string, SummaryItem[]>();
@@ -144,8 +206,10 @@ export default function Home() {
         if (aRatio !== bRatio) return aRatio - bRatio;
         return stableTieBreaker(`${name}:${a.personId}:${a.item.id}`) - stableTieBreaker(`${name}:${b.personId}:${b.item.id}`);
       });
-      const concluded = entries.filter((entry) => entry.item.status === "Concluded");
-      return [name, [...pending.map((entry, index) => ({ ...entry, isNext: index === 0 })), ...concluded]];
+      const nextItemId = pending[0]?.item.id;
+      const stableDisplayOrder = [...entries].sort((a, b) =>
+        stableTieBreaker(`${name}:${a.personId}:${a.item.id}`) - stableTieBreaker(`${name}:${b.personId}:${b.item.id}`));
+      return [name, stableDisplayOrder.map((entry) => ({ ...entry, isNext: entry.item.id === nextItemId }))];
     });
     return fairGroups.sort(([a], [b]) => a.localeCompare(b));
   }, [orders]);
