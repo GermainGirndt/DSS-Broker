@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { OrderItem, Product } from "./interfaces";
 
 type ItemNode = OrderItem & {
@@ -315,6 +315,7 @@ export default function Home() {
     () => new Set(),
   );
   const [storageReady, setStorageReady] = useState(false);
+  const skipNextPersistenceWrite = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,6 +381,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!storageReady) return;
+    if (skipNextPersistenceWrite.current) {
+      skipNextPersistenceWrite.current = false;
+      return;
+    }
     const stateToPersist: PersistedAppState = {
       version: 2,
       products,
@@ -545,6 +550,29 @@ export default function Home() {
             entry.changesAvailability || entry.statusChanges.length > 0,
         ),
     );
+  };
+
+  const clearSavedData = () => {
+    if (
+      !window.confirm(
+        "Clear all saved DSS-Broker data and restore the starter example?",
+      )
+    )
+      return;
+    skipNextPersistenceWrite.current = true;
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Reset the in-memory app even if browser storage is inaccessible.
+    }
+    setProducts([...starterProducts]);
+    setOrders(starterOrders());
+    setUnavailableProducts(new Set());
+    setAlternativeDrafts({});
+    setPickupHistory([]);
+    setCollapsedPeople(new Set());
+    setNewProduct("");
+    setNewPerson("");
   };
 
   const changeItem = (
@@ -724,6 +752,10 @@ export default function Home() {
           <strong>
             {summary.reduce((sum, [, names]) => sum + names.length, 0)} items
           </strong>
+          <button className="clear-data" onClick={clearSavedData}>
+            <Icon name="trash" />
+            Clear saved data
+          </button>
         </div>
       </header>
 
