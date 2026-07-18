@@ -7,6 +7,13 @@ type ItemNode = OrderItem & { id: string; alternativeOrderItem: ItemNode | null 
 type FamilyOrder = { id: string; name: string; items: ItemNode[] };
 type SummaryItem = { personId: string; personName: string; item: ItemNode };
 type AlternativeDraft = { rootId: string; targetId: string; targetName: string; chain: string[] };
+type PickupHistoryEntry = {
+  personId: string;
+  itemId: string;
+  previousItem: ItemNode;
+  previousUnavailableProducts: Set<string>;
+  message: string;
+};
 
 const product = (name: string): Product => ({ name });
 const item = (name: string, alternative: ItemNode | null = null): ItemNode => ({
@@ -77,7 +84,7 @@ function updateNode(node: ItemNode, id: string, update: (value: ItemNode) => Ite
     : node;
 }
 
-function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check" | "x" | "arrow" | "trash" }) {
+function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check" | "x" | "arrow" | "trash" | "undo" }) {
   const paths = {
     bread: <><path d="M6 9.5C3.8 9.5 2 7.9 2 6s1.8-3.5 4-3.5c.8-1 2-1.5 3.2-1.5 1.8 0 3.3 1 4 2.4.5-.2 1-.4 1.6-.4C17.1 3 19 4.8 19 7v8.5c0 1.4-1.1 2.5-2.5 2.5h-11C4.1 18 3 16.9 3 15.5V8.8"/><path d="M7 6.5 9 5m2.5 1.5 2-1.5"/></>,
     people: <><circle cx="8" cy="7" r="3"/><path d="M2.5 18c.4-3.2 2.2-5 5.5-5s5.1 1.8 5.5 5M14 5.2a3 3 0 0 1 0 5.6M15.5 13c2.4.3 3.7 2 4 5"/></>,
@@ -87,6 +94,7 @@ function Icon({ name }: { name: "bread" | "people" | "basket" | "plus" | "check"
     x: <path d="m6 6 12 12M18 6 6 18"/>,
     arrow: <path d="M5 12h14m-5-5 5 5-5 5"/>,
     trash: <><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></>,
+    undo: <><path d="M9 7 4 12l5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -98,6 +106,7 @@ export default function Home() {
   const [newPerson, setNewPerson] = useState("");
   const [unavailableProducts, setUnavailableProducts] = useState<Set<string>>(() => new Set());
   const [alternativeDrafts, setAlternativeDrafts] = useState<Record<string, AlternativeDraft>>({});
+  const [pickupHistory, setPickupHistory] = useState<PickupHistoryEntry[]>([]);
 
   const summary = useMemo(() => {
     const grouped = new Map<string, SummaryItem[]>();
@@ -167,9 +176,35 @@ export default function Home() {
       ? { ...person, items: person.items.filter((node) => node.id !== itemId) }
       : person));
     if (alternativeDrafts[personId]?.rootId === itemId) finishAlternatives(personId);
+    setPickupHistory((current) => current.filter((entry) => !(entry.personId === personId && entry.itemId === itemId)));
+  };
+
+  const rememberPickupAction = (entry: SummaryItem, message: string) => {
+    setPickupHistory((current) => [...current, {
+      personId: entry.personId,
+      itemId: entry.item.id,
+      previousItem: entry.item,
+      previousUnavailableProducts: new Set(unavailableProducts),
+      message,
+    }].slice(-20));
+  };
+
+  const markConcluded = (entry: SummaryItem) => {
+    if (entry.item.status === "Concluded") return;
+    rememberPickupAction(entry, `${entry.personName}’s ${entry.item.product.name} was marked concluded.`);
+    changeItem(entry.personId, entry.item.id, (current) => ({ ...current, status: "Concluded" }));
+  };
+
+  const undoLastPickupAction = () => {
+    const lastAction = pickupHistory[pickupHistory.length - 1];
+    if (!lastAction) return;
+    changeItem(lastAction.personId, lastAction.itemId, () => lastAction.previousItem);
+    setUnavailableProducts(new Set(lastAction.previousUnavailableProducts));
+    setPickupHistory((current) => current.slice(0, -1));
   };
 
   const markUnavailable = (entry: SummaryItem) => {
+    rememberPickupAction(entry, `${entry.personName}’s ${entry.item.product.name} was marked not available.`);
     const knownUnavailable = new Set(unavailableProducts).add(entry.item.product.name);
     setUnavailableProducts(knownUnavailable);
 
@@ -250,7 +285,8 @@ export default function Home() {
         <div className="summary-intro"><span className="number light">03</span><p className="eyebrow">READY FOR THE COUNTER</p><h2>Bakery summary</h2><p>Everything grouped by bread, with unavailable picks automatically swapped for their next alternative.</p></div>
         <div className="receipt">
           <div className="receipt-top"><div><Icon name="basket" /><span>PICKUP LIST</span></div><strong>{summary.reduce((sum, [, names]) => sum + names.length, 0)} TOTAL</strong></div>
-          {summary.map(([name, entries]) => <div className="summary-row" key={name}><span className="quantity">{entries.length}×</span><div className="summary-product"><strong>{name}</strong><small>for {entries.map((entry) => entry.personName).join(", ")}</small><div className="summary-actions">{entries.map((entry) => <div className="summary-action" key={entry.item.id}><span>{entry.personName}<em className={entry.item.status === "Concluded" ? "done" : "pending"}>{entry.item.status}</em></span><button className={`success ${entry.item.status === "Concluded" ? "active" : ""}`} onClick={() => changeItem(entry.personId, entry.item.id, (current) => ({ ...current, status: "Concluded" }))}><Icon name="check" />Concluded</button><button className="danger" onClick={() => markUnavailable(entry)}><Icon name="x" />Not available</button></div>)}</div></div></div>)}
+          {pickupHistory.length > 0 && <div className="undo-notice" role="status" aria-live="polite"><div><Icon name="undo" /><span><strong>Last action</strong>{pickupHistory[pickupHistory.length - 1].message}</span></div><button onClick={undoLastPickupAction}><Icon name="undo" />Undo{pickupHistory.length > 1 && <small>{pickupHistory.length} steps</small>}</button></div>}
+          {summary.map(([name, entries]) => <div className="summary-row" key={name}><span className="quantity">{entries.length}×</span><div className="summary-product"><strong>{name}</strong><small>for {entries.map((entry) => entry.personName).join(", ")}</small><div className="summary-actions">{entries.map((entry) => <div className="summary-action" key={entry.item.id}><span>{entry.personName}<em className={entry.item.status === "Concluded" ? "done" : "pending"}>{entry.item.status}</em></span><button className={`success ${entry.item.status === "Concluded" ? "active" : ""}`} onClick={() => markConcluded(entry)}><Icon name="check" />Concluded</button><button className="danger" onClick={() => markUnavailable(entry)}><Icon name="x" />Not available</button></div>)}</div></div></div>)}
           {summary.length === 0 && <p className="summary-empty">Your basket is empty.</p>}
           <div className="receipt-bottom"><span>GOOD TO GO</span><span>✦ DSS · BAKERY ✦</span></div>
         </div>
