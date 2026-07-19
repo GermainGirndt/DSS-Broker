@@ -7,6 +7,8 @@ type ItemNode = OrderItem & {
   id: string;
   alternativeOrderItem: ItemNode | null;
 };
+type NewItem = Pick<ItemNode, "product"> &
+  Partial<Pick<ItemNode, "id" | "alternativeOrderItem" | "status">>;
 type FamilyOrder = { id: string; name: string; items: ItemNode[] };
 type CatalogProduct = { name: string };
 type SummaryItem = {
@@ -44,16 +46,17 @@ type PersistedAppState = {
 
 const STORAGE_KEY = "dss-broker:state:v1";
 
-const product = (name: string): Product => ({ name });
-const item = (
-  name: string,
-  alternative: ItemNode | null = null,
+const product = ({ name }: Product): Product => ({ name });
+const item = ({
+  product,
+  alternativeOrderItem = null,
+  status = "Not Processed",
   id = crypto.randomUUID(),
-): ItemNode => ({
+}: NewItem): ItemNode => ({
   id,
-  product: product(name),
-  alternativeOrderItem: alternative,
-  status: "Not Processed",
+  product,
+  alternativeOrderItem,
+  status,
 });
 
 const starterProductNames = [
@@ -75,32 +78,44 @@ function starterOrders(): FamilyOrder[] {
       id: "starter-person-germain",
       name: "Germain",
       items: [
-        item(
-          "Tomatine",
-          item(
-            "DSS",
-            item("Pfferbrezel", null, "starter-germain-pffer"),
-            "starter-germain-dss",
-          ),
-          "starter-germain-tomatine",
-        ),
-        item(
-          "Vinschgauer",
-          item("Bauernweckla", null, "starter-germain-bauern"),
-          "starter-germain-vinschgauer",
-        ),
+        item({
+          id: "starter-germain-tomatine",
+          product: product({ name: "Tomatine" }),
+          alternativeOrderItem: item({
+            id: "starter-germain-dss",
+            product: product({ name: "DSS" }),
+            alternativeOrderItem: item({
+              id: "starter-germain-pffer",
+              product: product({ name: "Pfferbrezel" }),
+            }),
+          }),
+        }),
+        item({
+          id: "starter-germain-vinschgauer",
+          product: product({ name: "Vinschgauer" }),
+          alternativeOrderItem: item({
+            id: "starter-germain-bauern",
+            product: product({ name: "Bauernweckla" }),
+          }),
+        }),
       ],
     },
     {
       id: "starter-person-johanna",
       name: "Johanna",
       items: [
-        item(
-          "Pfferbrezel",
-          item("Vollkornbrötchen", null, "starter-johanna-vollkorn"),
-          "starter-johanna-pffer",
-        ),
-        item("Tomatine", null, "starter-johanna-tomatine"),
+        item({
+          id: "starter-johanna-pffer",
+          product: product({ name: "Pfferbrezel" }),
+          alternativeOrderItem: item({
+            id: "starter-johanna-vollkorn",
+            product: product({ name: "Vollkornbrötchen" }),
+          }),
+        }),
+        item({
+          id: "starter-johanna-tomatine",
+          product: product({ name: "Tomatine" }),
+        }),
       ],
     },
     {
@@ -596,7 +611,7 @@ export default function Home() {
 
   const chooseBread = (personId: string, productName: string) => {
     const draft = alternativeDrafts[personId];
-    const nextItem = item(productName);
+    const nextItem = item({ product: product({ name: productName }) });
 
     if (!draft) {
       setOrders((current) =>
