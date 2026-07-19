@@ -172,7 +172,7 @@ Run the root-level build helper from the repository root:
 ./build-project.py
 ```
 
-The script installs locked dependencies, detects the repository name from the Git remote, configures the matching base path, creates a static Next.js export, and adds the `.nojekyll` marker required by GitHub Pages. Deploy the generated contents of the root-level `public/` directory.
+The script installs locked dependencies, detects the repository name from the Git remote, configures the matching base path, and creates a static Next.js export in `public/`. It also generates the root `index.html` redirect with the same social-sharing metadata. Publish the repository root so both `index.html` and `public/` are available.
 
 Override the automatically detected base path when necessary:
 
@@ -191,13 +191,15 @@ Optional environment variables:
 | Variable                 | Purpose                                                 |
 | ------------------------ | ------------------------------------------------------- |
 | `GITHUB_PAGES_BASE_PATH` | Base-path alternative to the positional argument.       |
-| `GITHUB_PAGES_CNAME`     | Writes a custom domain to `public/CNAME`.               |
+| `GITHUB_PAGES_CNAME`     | Writes a custom domain to the root-level `CNAME`.       |
+| `GITHUB_PAGES_URL`       | Overrides the full public URL used for sharing metadata. |
 | `SKIP_INSTALL=1`         | Skips `npm ci` when dependencies are already installed. |
 
 ## Project structure
 
 ```text
 DSS-Broker/
+├── index.html             # Generated redirect and social-sharing metadata
 ├── build-project.py       # One-command GitHub Pages static build
 ├── public/                # Generated GitHub Pages deployment files
 └── dss-broker/
@@ -205,6 +207,7 @@ DSS-Broker/
     │   ├── globals.css    # Global design and responsive behavior
     │   ├── interfaces.ts  # Public domain interfaces
     │   ├── layout.tsx     # Root layout and metadata
+    │   ├── opengraph-image.png # Social-sharing preview image
     │   └── page.tsx       # Application state, workflows, and UI
     ├── public/            # Static assets
     ├── package.json       # Dependencies and scripts

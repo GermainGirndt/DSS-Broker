@@ -12,10 +12,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const title = "DSS-Broker | Family Girndt's Smart Bakery Orders";
+const description =
+  "Plan bread orders for the whole family, arrange fallback choices, and track fair bakery pickups when a favorite bread is unavailable.";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const siteOrigin = new URL(siteUrl).origin;
+
 export const metadata: Metadata = {
-  title: "DSS-Broker | Family Girndt's Smart Bakery Orders",
-  description:
-    "Plan bread orders for the whole family, arrange fallback choices, and track fair bakery pickups when a favorite bread is unavailable.",
+  metadataBase: new URL(siteOrigin),
+  title,
+  description,
+  openGraph: {
+    type: "website",
+    url: siteUrl,
+    siteName: "DSS-Broker",
+    title,
+    description,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({

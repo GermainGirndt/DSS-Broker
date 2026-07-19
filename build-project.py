@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from html import escape
+from html.parser import HTMLParser
 import os
 from pathlib import Path
 import re
@@ -25,10 +27,36 @@ class BuildError(RuntimeError):
     """A build prerequisite or output validation failed."""
 
 
-def repository_name() -> str:
+class SocialMetadataParser(HTMLParser):
+    """Collect Open Graph and Twitter metadata from the built app page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags = []
+        self.keys = set()
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag != "meta":
+            return
+
+        attributes = dict(attrs)
+        key_attribute = "property" if "property" in attributes else "name"
+        key = attributes.get(key_attribute, "")
+        content = attributes.get("content", "")
+        if not key.startswith(("og:", "twitter:")) or not content:
+            return
+
+        self.keys.add(key)
+        self.tags.append(
+            f'    <meta {key_attribute}="{escape(key, quote=True)}" '
+            f'content="{escape(content, quote=True)}">'
+        )
+
+
+def repository_remote_url() -> str:
     git = shutil.which("git")
     if git is None:
-        return SCRIPT_DIR.name
+        return ""
 
     result = subprocess.run(
         [git, "-C", str(SCRIPT_DIR), "config", "--get", "remote.origin.url"],
@@ -36,7 +64,11 @@ def repository_name() -> str:
         capture_output=True,
         text=True,
     )
-    remote_url = result.stdout.strip().rstrip("/")
+    return result.stdout.strip().rstrip("/")
+
+
+def repository_name() -> str:
+    remote_url = repository_remote_url()
     if not remote_url:
         return SCRIPT_DIR.name
 
@@ -54,12 +86,10 @@ def normalize_base_path(requested_path: str) -> str:
         return ""
 
     normalized_path = (
-        requested_path[1:] if requested_path.startswith(
-            "/") else requested_path
+        requested_path[1:] if requested_path.startswith("/") else requested_path
     )
     normalized_path = (
-        normalized_path[:-
-                        1] if normalized_path.endswith("/") else normalized_path
+        normalized_path[:-1] if normalized_path.endswith("/") else normalized_path
     )
     if not normalized_path:
         raise BuildError("The GitHub Pages base path is invalid.")
@@ -110,13 +140,47 @@ def application_base_path(pages_base_path: str) -> str:
     return f"{pages_base_path}/public" if pages_base_path else "/public"
 
 
-def write_root_index() -> None:
+def application_url(app_base_path: str) -> str:
+    configured_url = os.environ.get("GITHUB_PAGES_URL", "").strip().rstrip("/")
+    if configured_url:
+        if not re.fullmatch(r"https?://[^\s]+", configured_url):
+            raise BuildError("GITHUB_PAGES_URL must be an absolute HTTP(S) URL.")
+        return configured_url
+
+    custom_domain = os.environ.get("GITHUB_PAGES_CNAME", "").strip()
+    if custom_domain:
+        return f"https://{custom_domain}{app_base_path}"
+
+    remote_url = repository_remote_url()
+    owner_match = re.search(r"github\.com[/:]([^/]+)/", remote_url)
+    if owner_match:
+        return f"https://{owner_match.group(1)}.github.io{app_base_path}"
+
+    raise BuildError(
+        "Could not determine the public GitHub Pages URL. "
+        "Set GITHUB_PAGES_URL to the application's full public URL."
+    )
+
+
+def extract_social_metadata(index_file: Path) -> str:
+    parser = SocialMetadataParser()
+    parser.feed(index_file.read_text(encoding="utf-8"))
+    required_keys = {"og:title", "og:description", "og:image"}
+    missing_keys = required_keys - parser.keys
+    if missing_keys:
+        missing = ", ".join(sorted(missing_keys))
+        raise BuildError(f"The built page is missing sharing metadata: {missing}.")
+    return "\n".join(parser.tags)
+
+
+def write_root_index(social_metadata: str) -> None:
     ROOT_INDEX_FILE.write_text(
-        """<!doctype html>
+        f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+{social_metadata}
     <meta http-equiv="refresh" content="0; url=./public/">
     <title>Family Girndt's DSS-Broker</title>
     <link rel="canonical" href="./public/">
@@ -160,11 +224,12 @@ def build(base_path: str) -> None:
 
     pages_base_path = normalize_base_path(base_path)
     app_base_path = application_base_path(pages_base_path)
+    site_url = application_url(app_base_path)
 
     print("Preparing DSS-Broker for GitHub Pages")
     print(f"Project:   {PROJECT_DIR}")
     print(f"Pages root:      {pages_base_path or '/'}")
-    print(f"Application URL: {app_base_path}/")
+    print(f"Application URL: {site_url}/")
 
     if os.environ.get("SKIP_INSTALL", "0") != "1":
         print("\nInstalling locked dependencies...", flush=True)
@@ -180,6 +245,7 @@ def build(base_path: str) -> None:
     build_environment = os.environ.copy()
     build_environment["GITHUB_PAGES_BUILD"] = "1"
     build_environment["NEXT_PUBLIC_BASE_PATH"] = app_base_path
+    build_environment["NEXT_PUBLIC_SITE_URL"] = site_url
     subprocess.run(
         [npm, "run", "build"],
         cwd=PROJECT_DIR,
@@ -192,11 +258,12 @@ def build(base_path: str) -> None:
         raise BuildError(
             f"The build completed without creating {index_file}."
         )
+    social_metadata = extract_social_metadata(index_file)
 
     remove_path(DEPLOY_DIR)
     shutil.move(str(BUILD_OUTPUT_DIR), str(DEPLOY_DIR))
     (DEPLOY_DIR / ".nojekyll").touch()
-    write_root_index()
+    write_root_index(social_metadata)
     ROOT_NOJEKYLL_FILE.touch()
 
     custom_domain = os.environ.get("GITHUB_PAGES_CNAME", "")
