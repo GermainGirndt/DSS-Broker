@@ -16,6 +16,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR / "dss-broker"
 BUILD_OUTPUT_DIR = PROJECT_DIR / "out"
 DEPLOY_DIR = SCRIPT_DIR / "public"
+ROOT_INDEX_FILE = SCRIPT_DIR / "index.html"
+ROOT_NOJEKYLL_FILE = SCRIPT_DIR / ".nojekyll"
+ROOT_CNAME_FILE = SCRIPT_DIR / "CNAME"
 
 
 class BuildError(RuntimeError):
@@ -50,8 +53,12 @@ def normalize_base_path(requested_path: str) -> str:
     if requested_path == "/":
         return ""
 
-    normalized_path = requested_path[1:] if requested_path.startswith("/") else requested_path
-    normalized_path = normalized_path[:-1] if normalized_path.endswith("/") else normalized_path
+    normalized_path = (
+        requested_path[1:] if requested_path.startswith("/") else requested_path
+    )
+    normalized_path = (
+        normalized_path[:-1] if normalized_path.endswith("/") else normalized_path
+    )
     if not normalized_path:
         raise BuildError("The GitHub Pages base path is invalid.")
     if any(character.isspace() for character in normalized_path):
@@ -95,6 +102,36 @@ def remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def application_base_path(pages_base_path: str) -> str:
+    return f"{pages_base_path}/public" if pages_base_path else "/public"
+
+
+def write_root_index() -> None:
+    ROOT_INDEX_FILE.write_text(
+        """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="0; url=./public/">
+    <title>Opening DSS-Broker…</title>
+    <link rel="canonical" href="./public/">
+    <script>
+      const destination = new URL("public/", window.location.href);
+      destination.search = window.location.search;
+      destination.hash = window.location.hash;
+      window.location.replace(destination);
+    </script>
+  </head>
+  <body>
+    <p>Opening <a href="./public/">DSS-Broker</a>…</p>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build DSS-Broker as a static GitHub Pages export."
@@ -116,10 +153,12 @@ def build(base_path: str) -> None:
     validate_node_version(node)
 
     pages_base_path = normalize_base_path(base_path)
+    app_base_path = application_base_path(pages_base_path)
 
     print("Preparing DSS-Broker for GitHub Pages")
     print(f"Project:   {PROJECT_DIR}")
-    print(f"Base path: {pages_base_path or '/'}")
+    print(f"Pages root:      {pages_base_path or '/'}")
+    print(f"Application URL: {app_base_path}/")
 
     if os.environ.get("SKIP_INSTALL", "0") != "1":
         print("\nInstalling locked dependencies...", flush=True)
@@ -134,7 +173,7 @@ def build(base_path: str) -> None:
     print("\nBuilding static GitHub Pages export...", flush=True)
     build_environment = os.environ.copy()
     build_environment["GITHUB_PAGES_BUILD"] = "1"
-    build_environment["NEXT_PUBLIC_BASE_PATH"] = pages_base_path
+    build_environment["NEXT_PUBLIC_BASE_PATH"] = app_base_path
     subprocess.run(
         [npm, "run", "build"],
         cwd=PROJECT_DIR,
@@ -151,14 +190,17 @@ def build(base_path: str) -> None:
     remove_path(DEPLOY_DIR)
     shutil.move(str(BUILD_OUTPUT_DIR), str(DEPLOY_DIR))
     (DEPLOY_DIR / ".nojekyll").touch()
+    write_root_index()
+    ROOT_NOJEKYLL_FILE.touch()
 
     custom_domain = os.environ.get("GITHUB_PAGES_CNAME", "")
     if custom_domain:
-        (DEPLOY_DIR / "CNAME").write_text(f"{custom_domain}\n", encoding="utf-8")
+        ROOT_CNAME_FILE.write_text(f"{custom_domain}\n", encoding="utf-8")
         print(f"Custom domain: {custom_domain}")
 
     print("\nGitHub Pages build completed successfully.")
-    print(f"Deploy the contents of: {DEPLOY_DIR}")
+    print(f"Root entry page: {ROOT_INDEX_FILE}")
+    print(f"Application files: {DEPLOY_DIR}")
 
 
 def main() -> int:
