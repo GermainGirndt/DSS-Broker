@@ -167,18 +167,50 @@ npm run build
 npm run start
 ```
 
+## GitHub Pages build
+
+Run the root-level build helper from the repository root:
+
+```bash
+./build-project.sh
+```
+
+The script installs locked dependencies, detects the repository name from the Git remote, configures the matching base path, creates a static Next.js export, and adds the `.nojekyll` marker required by GitHub Pages. Deploy the generated contents of `dss-broker/out/`.
+
+Override the automatically detected base path when necessary:
+
+```bash
+./build-project.sh /my-repository
+```
+
+Use `/` for a root-domain or `<username>.github.io` deployment:
+
+```bash
+./build-project.sh /
+```
+
+Optional environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `GITHUB_PAGES_BASE_PATH` | Base-path alternative to the positional argument. |
+| `GITHUB_PAGES_CNAME` | Writes a custom domain to `out/CNAME`. |
+| `SKIP_INSTALL=1` | Skips `npm ci` when dependencies are already installed. |
+
 ## Project structure
 
 ```text
-dss-broker/
-├── app/
-│   ├── globals.css    # Global design and responsive behavior
-│   ├── interfaces.ts  # Public domain interfaces
-│   ├── layout.tsx     # Root layout and metadata
-│   └── page.tsx       # Application state, workflows, and UI
-├── public/            # Static assets
-├── package.json       # Dependencies and scripts
-└── next.config.ts     # Next.js configuration
+DSS-Broker/
+├── build-project.sh       # One-command GitHub Pages static build
+└── dss-broker/
+    ├── app/
+    │   ├── globals.css    # Global design and responsive behavior
+    │   ├── interfaces.ts  # Public domain interfaces
+    │   ├── layout.tsx     # Root layout and metadata
+    │   └── page.tsx       # Application state, workflows, and UI
+    ├── public/            # Static assets
+    ├── package.json       # Dependencies and scripts
+    └── next.config.ts     # Next.js configuration
 ```
 
 ## Important implementation details
