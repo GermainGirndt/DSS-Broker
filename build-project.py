@@ -116,6 +116,8 @@ def write_root_index() -> None:
     <meta http-equiv="refresh" content="0; url=./public/">
     <title>Opening DSS-Broker…</title>
     <link rel="canonical" href="./public/">
+    <link rel="icon" href="./public/favicon.ico?v=bread-1" sizes="any">
+    <link rel="icon" href="./public/icon.svg?v=bread-1" type="image/svg+xml">
     <script>
       const destination = new URL("public/", window.location.href);
       destination.search = window.location.search;
