@@ -79,22 +79,17 @@ function starterOrders(): FamilyOrder[] {
       name: "Germain",
       items: [
         item({
-          id: "starter-germain-tomatine",
           product: product({ name: "Tomatine" }),
           alternativeOrderItem: item({
-            id: "starter-germain-dss",
             product: product({ name: "DSS" }),
             alternativeOrderItem: item({
-              id: "starter-germain-pffer",
               product: product({ name: "Pfferbrezel" }),
             }),
           }),
         }),
         item({
-          id: "starter-germain-vinschgauer",
           product: product({ name: "Vinschgauer" }),
           alternativeOrderItem: item({
-            id: "starter-germain-bauern",
             product: product({ name: "Bauernweckla" }),
           }),
         }),
@@ -105,15 +100,12 @@ function starterOrders(): FamilyOrder[] {
       name: "Johanna",
       items: [
         item({
-          id: "starter-johanna-pffer",
           product: product({ name: "Pfferbrezel" }),
           alternativeOrderItem: item({
-            id: "starter-johanna-vollkorn",
             product: product({ name: "Vollkornbrötchen" }),
           }),
         }),
         item({
-          id: "starter-johanna-tomatine",
           product: product({ name: "Tomatine" }),
         }),
       ],
