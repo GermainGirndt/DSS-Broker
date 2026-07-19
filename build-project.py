@@ -54,10 +54,12 @@ def normalize_base_path(requested_path: str) -> str:
         return ""
 
     normalized_path = (
-        requested_path[1:] if requested_path.startswith("/") else requested_path
+        requested_path[1:] if requested_path.startswith(
+            "/") else requested_path
     )
     normalized_path = (
-        normalized_path[:-1] if normalized_path.endswith("/") else normalized_path
+        normalized_path[:-
+                        1] if normalized_path.endswith("/") else normalized_path
     )
     if not normalized_path:
         raise BuildError("The GitHub Pages base path is invalid.")
@@ -88,11 +90,13 @@ def validate_node_version(node: str) -> None:
     version = result.stdout.strip()
     match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+.*)?", version)
     if match is None:
-        raise BuildError(f"Could not understand the installed Node.js version: {version}.")
+        raise BuildError(
+            f"Could not understand the installed Node.js version: {version}.")
 
     major, minor = (int(part) for part in match.groups())
     if (major, minor) < (20, 9):
-        raise BuildError(f"Node.js 20.9.0 or newer is required; found {version}.")
+        raise BuildError(
+            f"Node.js 20.9.0 or newer is required; found {version}.")
 
 
 def remove_path(path: Path) -> None:
@@ -114,7 +118,7 @@ def write_root_index() -> None:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="refresh" content="0; url=./public/">
-    <title>Opening DSS-Broker…</title>
+    <title>Family Girndt's DSS-Broker</title>
     <link rel="canonical" href="./public/">
     <link rel="icon" href="./public/favicon.ico?v=bread-1" sizes="any">
     <link rel="icon" href="./public/icon.svg?v=bread-1" type="image/svg+xml">
@@ -126,7 +130,7 @@ def write_root_index() -> None:
     </script>
   </head>
   <body>
-    <p>Opening <a href="./public/">DSS-Broker</a>…</p>
+    <p>Family Girndt's <a href="./public/">DSS-Broker</a></p>
   </body>
 </html>
 """,

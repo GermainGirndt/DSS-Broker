@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DSS-Broker | Family Bakery Orders with Smart Fallbacks",
+  title: "DSS-Broker | Family Girndt's Smart Bakery Orders",
   description:
     "Plan bread orders for the whole family, arrange fallback choices, and track fair bakery pickups when a favorite bread is unavailable.",
 };
