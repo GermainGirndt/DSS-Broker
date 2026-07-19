@@ -172,21 +172,21 @@ npm run start
 Run the root-level build helper from the repository root:
 
 ```bash
-./build-project.sh
+./build-project.py
 ```
 
-The script installs locked dependencies, detects the repository name from the Git remote, configures the matching base path, creates a static Next.js export, and adds the `.nojekyll` marker required by GitHub Pages. Deploy the generated contents of `dss-broker/out/`.
+The script installs locked dependencies, detects the repository name from the Git remote, configures the matching base path, creates a static Next.js export, and adds the `.nojekyll` marker required by GitHub Pages. Deploy the generated contents of the root-level `public/` directory.
 
 Override the automatically detected base path when necessary:
 
 ```bash
-./build-project.sh /my-repository
+./build-project.py /my-repository
 ```
 
 Use `/` for a root-domain or `<username>.github.io` deployment:
 
 ```bash
-./build-project.sh /
+./build-project.py /
 ```
 
 Optional environment variables:
@@ -194,14 +194,15 @@ Optional environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `GITHUB_PAGES_BASE_PATH` | Base-path alternative to the positional argument. |
-| `GITHUB_PAGES_CNAME` | Writes a custom domain to `out/CNAME`. |
+| `GITHUB_PAGES_CNAME` | Writes a custom domain to `public/CNAME`. |
 | `SKIP_INSTALL=1` | Skips `npm ci` when dependencies are already installed. |
 
 ## Project structure
 
 ```text
 DSS-Broker/
-├── build-project.sh       # One-command GitHub Pages static build
+├── build-project.py       # One-command GitHub Pages static build
+├── public/                # Generated GitHub Pages deployment files
 └── dss-broker/
     ├── app/
     │   ├── globals.css    # Global design and responsive behavior
